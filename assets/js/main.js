@@ -9,13 +9,28 @@
   const topButton = document.querySelector("[data-top]");
   const toast = document.querySelector("[data-toast]");
   const preloader = document.querySelector("[data-preloader]");
+  const loadCount = document.querySelector("[data-load-count]");
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+
+  if (!reducedMotion) body.classList.add("motion-ready");
+
+  let loaderFrame;
+  function updateLoaderCount(now) {
+    if (!loadCount || preloader?.classList.contains("is-complete")) return;
+    const value = Math.min(96, Math.round((now / 2200) * 100));
+    loadCount.textContent = String(value);
+    loaderFrame = window.requestAnimationFrame(updateLoaderCount);
+  }
+  if (!reducedMotion && loadCount) loaderFrame = window.requestAnimationFrame(updateLoaderCount);
 
   function finishPreloader() {
     if (!preloader || preloader.classList.contains("is-complete")) return;
     const minimumDisplay = reducedMotion ? 150 : 1100;
     const elapsed = performance.now();
     window.setTimeout(() => {
+      if (loadCount) loadCount.textContent = "100";
+      window.cancelAnimationFrame(loaderFrame);
       preloader.classList.add("is-complete");
       preloader.setAttribute("aria-hidden", "true");
       body.classList.remove("is-loading");
@@ -42,7 +57,23 @@
 
   const heroParallax = document.querySelector("[data-parallax='hero']");
   const testimonyParallax = document.querySelector("[data-parallax='testimony']");
+  const heroScene = document.querySelector(".hero");
+  const depthScenes = Array.from(document.querySelectorAll(".depth-scene"));
+  let heroPointerX = 0;
+  let heroPointerY = 0;
   let parallaxQueued = false;
+
+  function updateSceneDepth() {
+    depthScenes.forEach((scene) => {
+      if (scene === heroScene) return;
+      const rect = scene.getBoundingClientRect();
+      const sceneCentre = rect.top + rect.height / 2;
+      const viewportCentre = window.innerHeight / 2;
+      const distance = (sceneCentre - viewportCentre) / Math.max(window.innerHeight, 1);
+      const shift = Math.max(-12, Math.min(12, distance * -10));
+      scene.style.setProperty("--scene-shift", `${shift.toFixed(2)}px`);
+    });
+  }
 
   function updateParallax() {
     parallaxQueued = false;
@@ -50,7 +81,7 @@
 
     if (heroParallax) {
       const heroShift = Math.min(window.scrollY * 0.12, 90);
-      heroParallax.style.transform = `translate3d(0, ${heroShift}px, 0) scale(1.055)`;
+      heroParallax.style.transform = `translate3d(${heroPointerX * -14}px, ${heroShift + heroPointerY * -9}px, 0) scale(1.075)`;
     }
 
     if (testimonyParallax) {
@@ -62,12 +93,130 @@
         testimonyParallax.style.transform = `translate3d(0, ${shift}px, 0) scale(1.1)`;
       }
     }
+
+    updateSceneDepth();
   }
 
   function queueParallax() {
     if (parallaxQueued) return;
     parallaxQueued = true;
     window.requestAnimationFrame(updateParallax);
+  }
+
+  if (finePointer && heroScene && !reducedMotion) {
+    heroScene.addEventListener("pointermove", (event) => {
+      const rect = heroScene.getBoundingClientRect();
+      heroPointerX = (event.clientX - rect.left) / rect.width - 0.5;
+      heroPointerY = (event.clientY - rect.top) / rect.height - 0.5;
+      queueParallax();
+    });
+    heroScene.addEventListener("pointerleave", () => {
+      heroPointerX = 0;
+      heroPointerY = 0;
+      queueParallax();
+    });
+  }
+
+  const depthCardSelector = [
+    ".about-media",
+    ".schedule-card",
+    ".path-card",
+    ".bulletin-card",
+    ".account-card",
+    ".contact-form",
+    ".blog-callout",
+    ".gallery-grid figure"
+  ].join(",");
+
+  const depthCards = document.querySelectorAll(depthCardSelector);
+  depthCards.forEach((card) => card.classList.add("depth-card"));
+
+  if (finePointer && !reducedMotion) {
+    depthCards.forEach((card) => {
+      let tiltFrame;
+
+      card.addEventListener("pointermove", (event) => {
+        const rect = card.getBoundingClientRect();
+        const x = (event.clientX - rect.left) / rect.width;
+        const y = (event.clientY - rect.top) / rect.height;
+        const rotateX = (0.5 - y) * 5;
+        const rotateY = (x - 0.5) * 6;
+
+        window.cancelAnimationFrame(tiltFrame);
+        tiltFrame = window.requestAnimationFrame(() => {
+          card.style.setProperty("--tilt-x", `${rotateX.toFixed(2)}deg`);
+          card.style.setProperty("--tilt-y", `${rotateY.toFixed(2)}deg`);
+        });
+      });
+
+      card.addEventListener("pointerleave", () => {
+        window.cancelAnimationFrame(tiltFrame);
+        card.style.setProperty("--tilt-x", "0deg");
+        card.style.setProperty("--tilt-y", "0deg");
+      });
+    });
+
+    document.querySelectorAll(".btn").forEach((button) => {
+      button.classList.add("magnetic");
+      button.addEventListener("pointermove", (event) => {
+        const rect = button.getBoundingClientRect();
+        const x = Math.max(-7, Math.min(7, (event.clientX - (rect.left + rect.width / 2)) * 0.12));
+        const y = Math.max(-5, Math.min(5, (event.clientY - (rect.top + rect.height / 2)) * 0.12));
+        button.style.setProperty("--magnet-x", `${x.toFixed(2)}px`);
+        button.style.setProperty("--magnet-y", `${y.toFixed(2)}px`);
+      });
+      button.addEventListener("pointerleave", () => {
+        button.style.setProperty("--magnet-x", "0px");
+        button.style.setProperty("--magnet-y", "0px");
+      });
+    });
+  }
+
+  if (depthScenes.length > 1) {
+    const sceneRail = document.createElement("nav");
+    sceneRail.className = "scene-rail";
+    sceneRail.setAttribute("aria-label", "Page sections");
+
+    const railButtons = depthScenes
+      .filter((scene) => scene.id)
+      .map((scene, index) => {
+        const label = scene.dataset.scene || scene.id;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.label = label;
+        button.setAttribute("aria-label", `Go to ${label}`);
+        button.classList.toggle("active", index === 0);
+        if (index === 0) button.setAttribute("aria-current", "true");
+        button.addEventListener("click", () => {
+          scene.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+        });
+        sceneRail.appendChild(button);
+        return { scene, button };
+      });
+
+    document.body.appendChild(sceneRail);
+
+    if ("IntersectionObserver" in window) {
+      const railObserver = new IntersectionObserver(
+        (entries) => {
+          const visibleEntry = entries
+            .filter((entry) => entry.isIntersecting)
+            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+          if (!visibleEntry) return;
+          railButtons.forEach(({ scene, button }) => {
+            const active = scene === visibleEntry.target;
+            button.classList.toggle("active", active);
+            if (active) {
+              button.setAttribute("aria-current", "true");
+            } else {
+              button.removeAttribute("aria-current");
+            }
+          });
+        },
+        { rootMargin: "-24% 0px -52%", threshold: [0, 0.08, 0.3] }
+      );
+      railButtons.forEach(({ scene }) => railObserver.observe(scene));
+    }
   }
 
   function closeNav() {
@@ -218,6 +367,10 @@
         const active = panel.dataset[panelKey] === target;
         panel.classList.toggle("active", active);
         panel.hidden = !active;
+        if (active && !reducedMotion) {
+          panel.classList.remove("panel-enter");
+          window.requestAnimationFrame(() => panel.classList.add("panel-enter"));
+        }
       });
     }
 
